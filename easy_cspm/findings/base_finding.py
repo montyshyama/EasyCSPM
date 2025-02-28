@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from ..core.logging_config import logger
 from ..core.exceptions import FindingEvaluationError
 from .finding_utils import get_property
+import datetime
 
 class BaseFinding(ABC):
     """Base class for all security findings"""
@@ -174,4 +175,50 @@ class BaseFinding(ABC):
             return current
         except Exception as e:
             logger.error(f"Error getting property {property_path} from resource: {str(e)}")
-            return default 
+            return default
+
+    def evaluate_resource(self, resource):
+        """
+        Evaluate a resource and store a finding if applicable
+        
+        Args:
+            resource: The resource to evaluate
+            
+        Returns:
+            bool: True if a finding was created, False otherwise
+        """
+        try:
+            # Skip evaluation if resource doesn't match the required type
+            if not self.applies_to_resource(resource):
+                return False
+            
+            # Evaluate the resource
+            result = self.evaluate(resource)
+            
+            # If evaluation returns a finding, store it
+            if result:
+                finding_props = {
+                    "details": result if isinstance(result, dict) else {},
+                    "resource_type": resource.resource_type,
+                    "evaluation_time": datetime.datetime.utcnow().isoformat()
+                }
+                
+                # Store the finding
+                self.db_manager.store_finding(
+                    scan_id=self.scan_id,
+                    resource_id=resource.resource_id,
+                    finding_type=self.finding_type,
+                    severity=self.get_severity(),
+                    title=self.title,
+                    description=self.description,
+                    remediation=self.remediation,
+                    properties=finding_props
+                )
+                
+                logger.info(f"Found {self.finding_type} issue for resource {resource.resource_id}")
+                return True
+                
+            return False
+        except Exception as e:
+            logger.error(f"Error evaluating {self.finding_type} for resource {resource.resource_id}: {str(e)}")
+            raise FindingEvaluationError(self.finding_type, resource.resource_id, str(e)) 

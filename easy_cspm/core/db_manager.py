@@ -78,17 +78,14 @@ class Finding(Base):
     
     id = Column(Integer, primary_key=True)
     scan_id = Column(String(255), nullable=False)
-    resource_id = Column(Integer, ForeignKey('resources.id'), nullable=False)
-    account_id = Column(String(64), nullable=False)
-    region = Column(String(64), nullable=False)
-    finding_type = Column(String(128), nullable=False)
+    resource_id = Column(String(255), ForeignKey('resources.resource_id'))
+    finding_type = Column(String(64), nullable=False)
+    severity = Column(String(16), nullable=False)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    severity = Column(String(64), nullable=False)
     remediation = Column(Text, nullable=True)
-    details = Column(JSON, nullable=True)
+    properties = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
     
     resource = relationship("Resource", back_populates="findings")
 
@@ -165,18 +162,17 @@ class DBManager:
         """Store a finding in the database"""
         try:
             # Convert properties to JSON string if needed
+            properties_json = None
             if properties is not None:
                 if isinstance(properties, str):
                     try:
                         # Validate JSON string
                         json.loads(properties)
                         properties_json = properties
-                    except:
-                        properties_json = json.dumps(properties)
+                    except json.JSONDecodeError:
+                        properties_json = json.dumps({"raw_data": properties})
                 else:
                     properties_json = json.dumps(properties)
-            else:
-                properties_json = None
             
             # Create new finding
             new_finding = Finding(
@@ -189,6 +185,7 @@ class DBManager:
                 remediation=remediation,
                 properties=properties_json
             )
+            
             self.session.add(new_finding)
             self.session.commit()
             logger.debug(f"Stored finding {finding_type} for resource {resource_id} in database")
