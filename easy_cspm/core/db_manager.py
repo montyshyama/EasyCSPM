@@ -23,16 +23,55 @@ class Resource(Base):
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
     
     findings = relationship("Finding", back_populates="resource")
+    
+    # Cache for parsed properties
+    _properties_dict = None
 
     def get_properties(self):
-        """Get properties as a Python dictionary"""
-        if not self.properties:
+        """
+        Get the properties as a dictionary
+        
+        Returns:
+            dict: The properties as a dictionary
+        """
+        if self.properties is None:
             return {}
+        
+        # Already a dict, just return it
+        if isinstance(self.properties, dict):
+            return self.properties
+        
+        # Try to parse as JSON
+        if isinstance(self.properties, str):
+            try:
+                return json.loads(self.properties)
+            except json.JSONDecodeError:
+                logger.error(f"Failed to parse properties JSON for resource {self.resource_id}")
+                return {}
+        
+        # Not sure what it is, try to convert to dict
         try:
-            return json.loads(self.properties)
-        except Exception:
-            logger.error(f"Failed to parse properties for resource {self.resource_id}")
+            return dict(self.properties)
+        except:
+            logger.error(f"Could not convert properties to dict for resource {self.resource_id}")
             return {}
+    
+    def get_property(self, key, default=None):
+        """
+        Safely access a resource property by key
+        
+        Args:
+            key: The property key to access
+            default: Default value to return if key not found
+            
+        Returns:
+            The property value or default if not found
+        """
+        # Get properties as dict first
+        props = self.get_properties()
+        
+        # Return the requested property or default
+        return props.get(key, default)
 
 class Finding(Base):
     __tablename__ = 'findings'
@@ -75,43 +114,35 @@ class DBManager:
     def store_resource(self, scan_id, resource_id, account_id, region, service, resource_type, name, properties=None):
         """Store a resource in the database"""
         try:
-            # Check if this resource already exists
-            existing_resource = self.session.query(Resource).filter_by(
+            # Ensure resource_id is not None
+            if resource_id is None:
+                resource_id = f"{service}-{resource_type}-{name}-{int(datetime.datetime.now().timestamp())}"
+                logger.warning(f"Generated resource_id for {name}: {resource_id}")
+            
+            # Check if properties is valid JSON if it's a string
+            if properties is not None and isinstance(properties, str):
+                try:
+                    # Validate JSON string
+                    json.loads(properties)
+                except json.JSONDecodeError:
+                    # If it's not valid JSON, convert it to JSON
+                    properties = json.dumps({"raw_data": properties})
+            
+            # Create new resource
+            new_resource = Resource(
+                scan_id=scan_id,
                 resource_id=resource_id,
                 account_id=account_id,
-                region=region
-            ).first()
-            
-            # Convert properties to JSON string for storage
-            properties_json = json.dumps(properties) if properties else None
-            
-            if existing_resource:
-                # Update existing resource
-                existing_resource.scan_id = scan_id
-                existing_resource.service = service
-                existing_resource.resource_type = resource_type
-                existing_resource.name = name
-                existing_resource.properties = properties_json
-                existing_resource.updated_at = datetime.datetime.utcnow()
-                self.session.commit()
-                logger.debug(f"Updated resource {resource_id} in database")
-                return existing_resource.id
-            else:
-                # Create new resource
-                new_resource = Resource(
-                    scan_id=scan_id,
-                    resource_id=resource_id,
-                    account_id=account_id,
-                    region=region,
-                    service=service,
-                    resource_type=resource_type,
-                    name=name,
-                    properties=properties_json
-                )
-                self.session.add(new_resource)
-                self.session.commit()
-                logger.debug(f"Stored resource {resource_id} in database")
-                return new_resource.id
+                region=region,
+                service=service,
+                resource_type=resource_type,
+                name=name,
+                properties=properties
+            )
+            self.session.add(new_resource)
+            self.session.commit()
+            logger.debug(f"Stored resource {resource_id} in database")
+            return new_resource.id
         except Exception as e:
             self.session.rollback()
             logger.error(f"Failed to store resource {resource_id}: {str(e)}")
@@ -133,6 +164,20 @@ class DBManager:
     def store_finding(self, scan_id, resource_id, finding_type, severity, title, description, remediation, properties=None):
         """Store a finding in the database"""
         try:
+            # Convert properties to JSON string if needed
+            if properties is not None:
+                if isinstance(properties, str):
+                    try:
+                        # Validate JSON string
+                        json.loads(properties)
+                        properties_json = properties
+                    except:
+                        properties_json = json.dumps(properties)
+                else:
+                    properties_json = json.dumps(properties)
+            else:
+                properties_json = None
+            
             # Create new finding
             new_finding = Finding(
                 scan_id=scan_id,
@@ -142,7 +187,7 @@ class DBManager:
                 title=title,
                 description=description,
                 remediation=remediation,
-                properties=json.dumps(properties) if properties else None
+                properties=properties_json
             )
             self.session.add(new_finding)
             self.session.commit()

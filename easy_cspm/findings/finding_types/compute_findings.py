@@ -188,44 +188,35 @@ class EC2SecurityGroupIngressUnrestrictedSshFinding(BaseFinding):
         return "high"
     
     def evaluate(self, resource):
-        """
-        Check if security group allows unrestricted SSH access
-        """
-        if resource.service != "ec2" or resource.resource_type != "security_group":
-            return False, {}
-        
-        properties = resource.properties
-        risky_rules = []
-        
-        for rule in properties.get('IpPermissions', []):
-            # Check for TCP protocol with port 22
-            if rule.get('IpProtocol') == 'tcp':
-                from_port = rule.get('FromPort', 0)
-                to_port = rule.get('ToPort', 65535)
+        """Evaluate if a security group allows unrestricted SSH access"""
+        try:
+            # Skip if not a security group
+            if resource.service != "ec2" or resource.resource_type != "security_group":
+                return False, {}
                 
-                if (from_port <= 22 <= to_port):
-                    for iprange in rule.get('IpRanges', []):
-                        cidr = iprange.get('CidrIp', '')
-                        
-                        # Check if CIDR is unrestricted or very broad
-                        if cidr == '0.0.0.0/0':
-                            risky_rules.append({
-                                'Protocol': 'TCP',
-                                'PortRange': f"{from_port}-{to_port}",
-                                'CidrIp': cidr
-                            })
-        
-        if not risky_rules:
-            return False, {}
-        
-        details = {
-            "SecurityGroupId": properties.get('GroupId'),
-            "SecurityGroupName": properties.get('GroupName'),
-            "VpcId": properties.get('VpcId'),
-            "RiskyRules": risky_rules
-        }
-        
-        return True, details
+            # Use the get_property helper 
+            ip_permissions = resource.get_property("IpPermissions", [])
+            
+            for permission in ip_permissions:
+                # Check if port 22 is in the range
+                from_port = permission.get("FromPort", 0)
+                to_port = permission.get("ToPort", 0) 
+                
+                if (from_port <= 22 <= to_port) or (from_port == 0 and to_port == 0):
+                    # Check for unrestricted access
+                    for ip_range in permission.get("IpRanges", []):
+                        if ip_range.get("CidrIp") == "0.0.0.0/0":
+                            return True, {
+                                "unrestricted_ssh": True,
+                                "cidr_ip": "0.0.0.0/0",
+                                "protocol": permission.get("IpProtocol"),
+                                "port_range": f"{from_port}-{to_port}"
+                            }
+            
+            return False, {"unrestricted_ssh": False}
+        except Exception as e:
+            logger.error(f"Error evaluating security group {resource.resource_id}: {str(e)}")
+            raise
 
 class EC2SecurityGroupIngressUnrestrictedRdpFinding(BaseFinding):
     """Finding for security groups allowing unrestricted RDP access"""
