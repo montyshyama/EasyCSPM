@@ -247,7 +247,7 @@ For more detailed logging, use the `--debug` flag:
 easy-cspm --debug
 ```
 
-Log files are stored in the current working directory by default.
+Log files are stored in the logs/ directory by default.
 
 ## License
 
