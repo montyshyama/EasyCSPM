@@ -93,7 +93,7 @@ The tool evaluates resources against security best practices and generates findi
 - AWS account with appropriate IAM permissions
 - AWS CLI configured (optional, but helpful)
 
-### Option 1: Install from Source
+### Install from Source
 
 ```bash
 # Clone the repository
