@@ -97,7 +97,7 @@ The tool evaluates resources against security best practices and generates findi
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/easy-cspm.git
+git clone https://github.com/montyshyama/EasyCSPM.git
 cd easy-cspm
 
 # Create and activate a virtual environment (recommended)
