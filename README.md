@@ -111,17 +111,6 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-### Option 2: Install via pip (if published)
-
-```bash
-# Create and activate a virtual environment (recommended)
-python -m venv venv
-source venv/bin/activate  # On Windows, use: venv\Scripts\activate
-
-# Install from PyPI
-pip install easy-cspm
-```
-
 ### Verifying Installation
 
 To verify that the tool is installed correctly:
@@ -210,15 +199,6 @@ easy-cspm --env-file path/to/custom.env
 
 # Run with Python module syntax
 python -m easy_cspm.cli --debug --output findings.csv
-```
-
-## Example Output
-
-The tool produces a CSV file with findings in the following format:
-
-```
-account_id,region,resource_id,resource_name,service,resource_type,finding_type,title,severity,details
-123456789012,us-east-1,arn:aws:eks:us-east-1:123456789012:cluster/test-cluster,test-cluster,eks,cluster,eks-cluster-endpoint-public,EKS Cluster Endpoint Publicly Accessible,high,"{""EndpointPublicAccess"":true,""PublicAccessCidrs"":[""0.0.0.0/0""]}"
 ```
 
 ## Database Schema
