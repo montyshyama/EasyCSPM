@@ -501,39 +501,34 @@ class EC2EBSOptimizedNotEnabledFinding(BaseFinding):
         return "low"
     
     def evaluate(self, resource):
-        """
-        Check if EC2 instance has EBS optimization enabled
-        """
-        if resource.service != "ec2" or resource.resource_type != "instance":
-            return False, {}
+        """Check if EC2 instance has EBS optimization enabled"""
+        # Get the instance type
+        instance_type = self.get_property(resource, 'properties.instanceType')
         
-        properties = resource.properties
+        # Safety check - if instanceType is None, we can't evaluate this finding
+        if instance_type is None:
+            logger.warning(f"Could not determine instance type for resource {resource.resource_id}")
+            return False
         
-        # Check if instance type supports EBS optimization
-        instance_type = properties.get('InstanceType')
-        ebs_optimized_by_default = [
-            'm4', 'm5', 'c4', 'c5', 'r4', 'r5', 'p3', 'p2', 'g3', 'g4', 'f1',
-            'x1', 'x1e', 'z1d', 'i3', 'i3en', 'd2', 'h1'
-        ]
+        # Check if optimization is enabled
+        ebs_optimized = self.get_property(resource, 'properties.ebsOptimized', False)
         
-        # Skip instance types that are EBS optimized by default
-        is_default_optimized = False
-        for prefix in ebs_optimized_by_default:
-            if instance_type.startswith(prefix):
-                is_default_optimized = True
-                break
+        # Only evaluate instances that support EBS optimization
+        # These instance types include most modern instance types
+        if instance_type.startswith('m4.') or instance_type.startswith('c4.') or \
+           instance_type.startswith('r4.') or instance_type.startswith('d2.') or \
+           instance_type.startswith('m5.') or instance_type.startswith('c5.') or \
+           instance_type.startswith('r5.') or instance_type.startswith('t3.') or \
+           instance_type.startswith('m6.') or instance_type.startswith('c6.') or \
+           instance_type.startswith('r6.'):
+            
+            # If optimization is not enabled, return a finding
+            if not ebs_optimized:
+                return {
+                    "instance_id": resource.resource_id,
+                    "instance_type": instance_type,
+                    "ebs_optimized": False
+                }
         
-        if is_default_optimized:
-            return False, {}
-        
-        # Check if EBS optimization is enabled for non-default instance types
-        if properties.get('EbsOptimized', False):
-            return False, {}
-        
-        details = {
-            "InstanceId": properties.get('InstanceId'),
-            "InstanceType": instance_type,
-            "EbsOptimized": properties.get('EbsOptimized', False)
-        }
-        
-        return True, details 
+        # No finding if optimization is enabled or instance type doesn't support it
+        return False 
