@@ -6,9 +6,9 @@ from ..core.exceptions import FindingEvaluationError
 class BaseFinding(ABC):
     """Base class for all security findings"""
     
-    def __init__(self, db_operations, scan_id):
-        """Initialize finding with DB operations and scan ID"""
-        self.db_operations = db_operations
+    def __init__(self, db_manager, scan_id):
+        """Initialize the finding with a DB manager and scan ID"""
+        self.db_manager = db_manager
         self.scan_id = scan_id
         self.finding_type = self.get_finding_type()
         self.title = self.get_title()
@@ -20,41 +20,63 @@ class BaseFinding(ABC):
     
     @abstractmethod
     def get_finding_type(self):
-        """Return the finding type (e.g., 'ec2-security-group-open-access')"""
-        pass
+        """Get the finding type identifier"""
+        raise NotImplementedError("Subclasses must implement get_finding_type")
     
     @abstractmethod
     def get_title(self):
-        """Return the finding title"""
-        pass
+        """Get the finding title"""
+        raise NotImplementedError("Subclasses must implement get_title")
     
     @abstractmethod
     def get_description(self):
-        """Return the finding description"""
-        pass
+        """Get the finding description"""
+        raise NotImplementedError("Subclasses must implement get_description")
     
     @abstractmethod
     def get_remediation(self):
-        """Return the finding remediation steps"""
-        pass
+        """Get the remediation guidance for the finding"""
+        raise NotImplementedError("Subclasses must implement get_remediation")
     
     @abstractmethod
     def get_severity(self):
-        """Return the finding severity (critical, high, medium, low, informational)"""
-        pass
+        """Get the finding severity (critical, high, medium, low, informational)"""
+        raise NotImplementedError("Subclasses must implement get_severity")
     
     @abstractmethod
     def evaluate(self, resource):
         """
-        Evaluate a resource for this finding
+        Evaluate a resource against this finding.
         
         Args:
-            resource: Resource object from the database
+            resource: The resource to evaluate
             
         Returns:
-            (bool, dict): Tuple of (is_finding_present, details_dict)
+            tuple: (is_finding, details)
+                is_finding: Boolean indicating whether the finding applies
+                details: Dictionary with details about the finding
         """
-        pass
+        try:
+            # Get parsed properties
+            properties = resource.get_properties() if hasattr(resource, 'get_properties') else {}
+            
+            # Add the parsed properties to the resource if it doesn't have them
+            if not hasattr(resource, 'properties_dict'):
+                resource.properties_dict = properties
+            
+            # Now call the actual evaluation logic
+            return self._evaluate(resource)
+        except Exception as e:
+            logger.error(f"Error evaluating {self.get_finding_type()} for resource {resource.resource_id}: {str(e)}")
+            raise
+    
+    @abstractmethod
+    def _evaluate(self, resource):
+        """
+        Implementation-specific evaluation logic.
+        Must be implemented by subclasses.
+        """
+        raise NotImplementedError("Subclasses must implement _evaluate")
     
     def execute(self, resource):
         """Execute the finding and handle exceptions"""
@@ -66,7 +88,7 @@ class BaseFinding(ABC):
             
             if is_finding:
                 # Store finding in database
-                self.db_operations.store_finding(
+                self.db_manager.store_finding(
                     scan_id=self.scan_id,
                     resource_id=resource.id,
                     finding_type=self.finding_type,

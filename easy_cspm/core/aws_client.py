@@ -31,8 +31,10 @@ class AWSClient:
             read_timeout=15
         )
         
+        # Get account ID from STS and store it
         try:
-            logger.info(f"AWS client initialized for region {self.region}")
+            self.account_id = self.get_account_id()
+            logger.info(f"AWS client initialized for account {self.account_id} in region {self.region}")
         except Exception as e:
             logger.error(f"Failed to initialize AWS client: {str(e)}")
             raise CredentialError(f"Failed to initialize AWS client: {str(e)}")
@@ -41,7 +43,7 @@ class AWSClient:
         """Get a boto3 client for the specified service"""
         if service_name not in self.clients:
             try:
-                self.clients[service_name] = self.session.client(service_name)
+                self.clients[service_name] = self.session.client(service_name, config=self.boto_config)
             except Exception as e:
                 logger.error(f"Failed to create client for service {service_name}: {str(e)}")
                 raise e

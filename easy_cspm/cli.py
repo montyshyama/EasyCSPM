@@ -71,99 +71,130 @@ def discover_finding_classes():
     return finding_classes
 
 def run_scanners(scanner_classes, aws_client, db_manager, account_id, region):
-    """Run all resource scanners for a specific account and region"""
-    discovered_resources = []
+    """Run all scanners for a given account and region"""
+    scan_id = f"{account_id}-{region}-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
     
     for scanner_class in scanner_classes:
         scanner_name = scanner_class.__name__
+        logger.info(f"Running {scanner_name} in account {account_id} region {region}")
+        
         try:
-            logger.info(f"Running {scanner_name} in account {account_id} region {region}")
-            scanner = scanner_class(aws_client, db_manager, account_id, region)
-            resource_list = scanner.scan()
-            if resource_list:
-                logger.info(f"{scanner_name} discovered {len(resource_list)} resources")
-                discovered_resources.extend(resource_list)
+            # Create scanner instance
+            scanner = scanner_class(aws_client, account_id, region)
+            
+            # Run scanner
+            resources = scanner.scan()
+            
+            # Store resources in database if any were found
+            if resources:
+                for resource_id, resource_name in resources:
+                    # Store resource in database with basic properties
+                    properties = {
+                        "resource_id": resource_id,
+                        "name": resource_name
+                    }
+                    
+                    # Store in database
+                    db_manager.store_resource(
+                        scan_id=scan_id,
+                        resource_id=resource_id,
+                        account_id=account_id,
+                        region=region,
+                        service=scanner.get_service_name(),
+                        resource_type=scanner.get_resource_type(),
+                        name=resource_name,
+                        properties=properties
+                    )
+                    
+                    # Log discovery
+                    logger.info(f"Found {scanner.get_resource_type()} resource: {resource_name}")
             else:
-                logger.info(f"{scanner_name} did not discover any resources")
+                logger.info(f"No {scanner.get_service_name()} {scanner.get_resource_type()} resources found")
+                
         except Exception as e:
             logger.error(f"Error running {scanner_name}: {str(e)}")
-    
-    return discovered_resources
 
 def run_findings(finding_classes, db_manager, account_id, region):
-    """Run all findings for discovered resources in a specific account and region"""
-    findings_results = []
+    """Run all findings for a given account and region"""
+    logger.info(f"Running findings against resources in account {account_id} region {region}")
     
-    # Get all resources from the database for this account and region
+    # Get all resources for this account and region
     resources = db_manager.get_resources_by_account_and_region(account_id, region)
     logger.info(f"Running findings against {len(resources)} resources in account {account_id} region {region}")
     
+    findings_results = []
+    scan_id = f"{account_id}-{region}-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+    
     for finding_class in finding_classes:
         finding_name = finding_class.__name__
+        
         try:
-            finding = finding_class()
+            # Initialize finding
+            finding = finding_class(db_manager, scan_id)
             
+            # Run finding against each resource
             for resource in resources:
                 try:
-                    detected, details = finding.evaluate(resource)
-                    if detected:
-                        finding_result = {
+                    # Skip resources that don't match the finding's target service/resource type
+                    # We'll have to determine if the finding applies to this resource type
+                    # This is a simplified example - you'd want more robust logic here
+                    
+                    # Execute finding
+                    result = finding.execute(resource)
+                    
+                    if result:
+                        # Get finding details
+                        finding_type = finding.get_finding_type()
+                        severity = finding.get_severity()
+                        title = finding.get_title()
+                        description = finding.get_description()
+                        remediation = finding.get_remediation()
+                        
+                        # Add to results
+                        findings_results.append({
+                            'scan_id': scan_id,
                             'account_id': account_id,
                             'region': region,
                             'resource_id': resource.resource_id,
                             'resource_name': resource.name,
-                            'service': resource.service,
-                            'resource_type': resource.resource_type,
-                            'finding_type': finding.get_finding_type(),
-                            'title': finding.get_title(),
-                            'severity': finding.get_severity(),
-                            'details': json.dumps(details)
-                        }
-                        findings_results.append(finding_result)
+                            'finding_type': finding_type,
+                            'severity': severity,
+                            'title': title,
+                            'description': description,
+                            'remediation': remediation
+                        })
                         
-                        # Store finding in database
-                        db_manager.add_finding(
-                            resource_id=resource.id,
-                            account_id=account_id,
-                            region=region,
-                            finding_type=finding.get_finding_type(),
-                            title=finding.get_title(),
-                            description=finding.get_description(),
-                            severity=finding.get_severity(),
-                            remediation=finding.get_remediation(),
-                            details=details
-                        )
+                        logger.info(f"Finding: {title} - {resource.name} ({severity})")
                         
-                        logger.info(f"Finding detected: {finding_name} on {resource.service}/{resource.resource_type}/{resource.name}")
                 except Exception as e:
                     logger.error(f"Error evaluating {finding_name} against resource {resource.resource_id}: {str(e)}")
+                    
         except Exception as e:
             logger.error(f"Error initializing finding {finding_name}: {str(e)}")
     
     return findings_results
 
-def export_to_csv(findings_results, output_file):
-    """Export findings results to CSV file"""
-    if not findings_results:
+def export_to_csv(findings, output_file):
+    """Export findings to CSV file"""
+    if not findings:
         logger.warning("No findings to export to CSV")
         return
     
-    # Ensure output directory exists
-    os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)
-    
-    fieldnames = [
-        'account_id', 'region', 'resource_id', 'resource_name', 
-        'service', 'resource_type', 'finding_type', 'title', 
-        'severity', 'details'
-    ]
-    
-    with open(output_file, 'w', newline='') as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        writer.writeheader()
-        for finding in findings_results:
-            writer.writerow(finding)
-    
-    logger.info(f"Exported {len(findings_results)} findings to {output_file}")
+    try:
+        with open(output_file, 'w', newline='') as csvfile:
+            fieldnames = [
+                'scan_id', 'account_id', 'region', 'resource_id', 'resource_name',
+                'finding_type', 'severity', 'title', 'description', 'remediation'
+            ]
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            
+            writer.writeheader()
+            for finding in findings:
+                writer.writerow(finding)
+                
+        logger.info(f"Exported {len(findings)} findings to {output_file}")
+    except Exception as e:
+        logger.error(f"Failed to export findings to CSV: {str(e)}")
 
 def main():
     parser = argparse.ArgumentParser(description='AWS CSPM CLI Tool')
