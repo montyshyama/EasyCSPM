@@ -1,6 +1,7 @@
 import ipaddress
 from ...core.logging_config import logger
 from ..base_finding import BaseFinding
+from ...findings.finding_utils import get_property
 
 class EC2PubliclyExposedInstanceFinding(BaseFinding):
     """Finding for EC2 instances that are publicly exposed"""
@@ -502,8 +503,12 @@ class EC2EBSOptimizedNotEnabledFinding(BaseFinding):
     
     def evaluate(self, resource):
         """Check if EC2 instance has EBS optimization enabled"""
+        # Skip non-EC2 instances
+        if resource.service != "ec2" or resource.resource_type != "instance":
+            return False
+        
         # Get the instance type
-        instance_type = self.get_property(resource, 'properties.instanceType')
+        instance_type = get_property(resource, 'properties.instanceType')
         
         # Safety check - if instanceType is None, we can't evaluate this finding
         if instance_type is None:
@@ -511,7 +516,7 @@ class EC2EBSOptimizedNotEnabledFinding(BaseFinding):
             return False
         
         # Check if optimization is enabled
-        ebs_optimized = self.get_property(resource, 'properties.ebsOptimized', False)
+        ebs_optimized = get_property(resource, 'properties.ebsOptimized', False)
         
         # Only evaluate instances that support EBS optimization
         # These instance types include most modern instance types
