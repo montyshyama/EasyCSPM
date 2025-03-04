@@ -151,20 +151,25 @@ def run_findings(finding_classes, db_manager, account_id, region):
                         remediation = finding.get_remediation()
                         
                         # Add to results
-                        findings_results.append({
-                            'scan_id': scan_id,
-                            'account_id': account_id,
-                            'region': region,
-                            'resource_id': resource.resource_id,
-                            'resource_name': resource.name,
-                            'finding_type': finding_type,
-                            'severity': severity,
-                            'title': title,
-                            'description': description,
-                            'remediation': remediation
-                        })
+                        # Check if a finding with the same resource_id and finding_type already exists
+                        if not any(
+                            f['resource_id'] == resource.resource_id and f['finding_type'] == finding_type
+                            for f in findings_results
+                        ):
+                            findings_results.append({
+                                'scan_id': scan_id,
+                                'account_id': account_id,
+                                'region': region,
+                                'resource_id': resource.resource_id,
+                                'resource_name': resource.name,
+                                'finding_type': finding_type,
+                                'severity': severity,
+                                'title': title,
+                                'description': description,
+                                'remediation': remediation
+                            })
                         
-                        logger.info(f"Finding: {title} - {resource.name} ({severity})")
+                            logger.info(f"Finding: {title} - {resource.name} ({severity})")
                         
                 except Exception as e:
                     logger.error(f"Error evaluating {finding_name} against resource {resource.resource_id}: {str(e)}")
@@ -179,7 +184,24 @@ def export_to_csv(findings, output_file):
     if not findings:
         logger.warning("No findings to export to CSV")
         return
-    
+
+    # Deduplicate findings
+    unique_findings = set()
+    deduplicated_findings = []
+    for finding in findings:
+        finding_key = (
+            finding['account_id'],
+            finding['account_id'],
+            finding['region'],
+            finding['resource_id'],
+            finding['finding_type'],
+            finding['severity'],
+            finding['title']
+        )
+        if finding_key not in unique_findings:
+            unique_findings.add(finding_key)
+            deduplicated_findings.append(finding)
+
     try:
         with open(output_file, 'w', newline='') as csvfile:
             fieldnames = [
@@ -187,16 +209,32 @@ def export_to_csv(findings, output_file):
                 'finding_type', 'severity', 'title', 'description', 'remediation'
             ]
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            
+
             writer.writeheader()
-            for finding in findings:
+            for finding in deduplicated_findings:
                 writer.writerow(finding)
-                
-        logger.info(f"Exported {len(findings)} findings to {output_file}")
+
+        logger.info(f"Exported {len(deduplicated_findings)} findings to {output_file}")
     except Exception as e:
         logger.error(f"Failed to export findings to CSV: {str(e)}")
 
 def main():
+    try:
+        os.remove('findings.csv')
+        logger.info("Deleted existing findings.csv")
+    except FileNotFoundError:
+        logger.info("findings.csv not found, skipping deletion")
+    except Exception as e:
+        logger.error(f"Error deleting findings.csv: {str(e)}")
+
+    try:
+        os.remove('easy_cspm.db')
+        logger.info("Deleted existing easy_cspm.db")
+    except FileNotFoundError:
+        logger.info("easy_cspm.db not found, skipping deletion")
+    except Exception as e:
+        logger.error(f"Error deleting easy_cspm.db: {str(e)}")
+
     parser = argparse.ArgumentParser(description='AWS CSPM CLI Tool')
     parser.add_argument('--output', '-o', default='findings.csv', help='Output CSV file path')
     parser.add_argument('--debug', '-d', action='store_true', help='Enable debug logging')
@@ -263,4 +301,4 @@ def main():
     return 0
 
 if __name__ == "__main__":
-    sys.exit(main()) 
+    sys.exit(main())

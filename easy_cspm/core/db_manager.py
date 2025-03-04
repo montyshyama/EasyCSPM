@@ -107,6 +107,12 @@ class DBManager:
     def close(self):
         """Close database connection"""
         self.session.close()
+
+    def reset_db(self):
+        """Drop all tables and recreate them"""
+        Base.metadata.drop_all(self.engine)
+        Base.metadata.create_all(self.engine)
+        logger.debug("Database reset")
         
     def store_resource(self, scan_id, resource_id, account_id, region, service, resource_type, name, properties=None):
         """Store a resource in the database"""
@@ -124,22 +130,38 @@ class DBManager:
                 except json.JSONDecodeError:
                     # If it's not valid JSON, convert it to JSON
                     properties = json.dumps({"raw_data": properties})
+            # Check if resource already exists
+            existing_resource = self.session.query(Resource).filter_by(resource_id=resource_id).first()
             
-            # Create new resource
-            new_resource = Resource(
-                scan_id=scan_id,
-                resource_id=resource_id,
-                account_id=account_id,
-                region=region,
-                service=service,
-                resource_type=resource_type,
-                name=name,
-                properties=properties
-            )
-            self.session.add(new_resource)
-            self.session.commit()
-            logger.debug(f"Stored resource {resource_id} in database")
-            return new_resource.id
+            if existing_resource:
+                # Update existing resource
+                existing_resource.scan_id = scan_id
+                existing_resource.account_id = account_id
+                existing_resource.region = region
+                existing_resource.service = service
+                existing_resource.resource_type = resource_type
+                existing_resource.name = name
+                existing_resource.properties = properties
+                existing_resource.updated_at = datetime.datetime.utcnow()
+                self.session.commit()
+                logger.debug(f"Updated resource {resource_id} in database")
+                return existing_resource.id
+            else:
+                # Create new resource
+                new_resource = Resource(
+                    scan_id=scan_id,
+                    resource_id=resource_id,
+                    account_id=account_id,
+                    region=region,
+                    service=service,
+                    resource_type=resource_type,
+                    name=name,
+                    properties=properties
+                )
+                self.session.add(new_resource)
+                self.session.commit()
+                logger.debug(f"Stored resource {resource_id} in database")
+                return new_resource.id
         except Exception as e:
             self.session.rollback()
             logger.error(f"Failed to store resource {resource_id}: {str(e)}")
@@ -203,4 +225,4 @@ class DBManager:
             return findings
         except Exception as e:
             logger.error(f"Failed to get findings for scan {scan_id}: {str(e)}")
-            return [] 
+            return []
